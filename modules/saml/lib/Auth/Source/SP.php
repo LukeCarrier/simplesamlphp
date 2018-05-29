@@ -35,6 +35,14 @@ class sspmod_saml_Auth_Source_SP extends SimpleSAML_Auth_Source {
 
 
 	/**
+	 * Disable Scoping element from IdP communications?
+	 *
+	 * @var boolean
+	 */
+	protected $disableScoping;
+
+
+	/**
 	 * Constructor for SAML SP authentication source.
 	 *
 	 * @param array $info  Information about this authentication source.
@@ -58,7 +66,8 @@ class sspmod_saml_Auth_Source_SP extends SimpleSAML_Auth_Source {
 		$this->entityId = $this->metadata->getString('entityID');
 		$this->idp = $this->metadata->getString('idp', NULL);
 		$this->discoURL = $this->metadata->getString('discoURL', NULL);
-		
+		$this->disableScoping = $this->metadata->getBoolean('disable.scoping', false);
+
 		if (empty($this->discoURL) && SimpleSAML\Module::isModuleEnabled('discojuice')) {
 			$this->discoURL = SimpleSAML\Module::getModuleURL('discojuice/central.php');
 		}
@@ -180,7 +189,7 @@ class sspmod_saml_Auth_Source_SP extends SimpleSAML_Auth_Source {
 	 * @param array $state  The state array for the current authentication.
 	 */
 	private function startSSO2(SimpleSAML_Configuration $idpMetadata, array $state) {
-	
+
 		if (isset($state['saml:ProxyCount']) && $state['saml:ProxyCount'] < 0) {
 			SimpleSAML_Auth_State::throwException(
 				$state,
@@ -239,35 +248,37 @@ class sspmod_saml_Auth_Source_SP extends SimpleSAML_Auth_Source {
 			$ar->setNameIdPolicy($policy);
 		}
 
-		if (isset($state['saml:IDPList'])) {
-			$IDPList = $state['saml:IDPList'];
-		} else {
-			$IDPList = array();
-		}
-		
-		$ar->setIDPList(array_unique(array_merge($this->metadata->getArray('IDPList', array()), 
-												$idpMetadata->getArray('IDPList', array()),
-												(array) $IDPList)));
-		
-		if (isset($state['saml:ProxyCount']) && $state['saml:ProxyCount'] !== null) {
-			$ar->setProxyCount($state['saml:ProxyCount']);
-		} elseif ($idpMetadata->getInteger('ProxyCount', null) !== null) {
-			$ar->setProxyCount($idpMetadata->getInteger('ProxyCount', null));
-		} elseif ($this->metadata->getInteger('ProxyCount', null) !== null) {
-			$ar->setProxyCount($this->metadata->getInteger('ProxyCount', null));
-		}
-		
+		$IDPList = array();
 		$requesterID = array();
-		if (isset($state['saml:RequesterID'])) {
-			$requesterID = $state['saml:RequesterID'];
+
+		if (!$this->disableScoping && !$idpMetadata->getBoolean('disable.scoping', false)) {
+			if (isset($state['saml:IDPList'])) {
+				$IDPList = $state['saml:IDPList'];
+			}
+
+			if (isset($state['saml:ProxyCount']) && $state['saml:ProxyCount'] !== null) {
+				$ar->setProxyCount($state['saml:ProxyCount']);
+			} elseif ($idpMetadata->getInteger('ProxyCount', null) !== null) {
+				$ar->setProxyCount($idpMetadata->getInteger('ProxyCount', null));
+			} elseif ($this->metadata->getInteger('ProxyCount', null)) {
+				$ar->setProxyCount($this->metadata->getInteger('ProxyCount', null));
+			}
+
+			if (isset($state['saml:RequesterID'])) {
+				$requesterID = $state['saml:RequesterID'];
+			}
+
+			if (isset($state['core:SP'])) {
+				$requesterID[] = $state['saml:RequesterID'];
+			}
 		}
-		
-		if (isset($state['core:SP'])) {
-			$requesterID[] = $state['core:SP'];
-		}
-		
+
+		$ar->setIDPList(array_unique(array_merge($this->metadata->getArray('IDPList', array()),
+			$idpMetadata->getArray('IDPList', array()),
+			(array) $IDPList)));
+
 		$ar->setRequesterID($requesterID);
-		
+
 		if (isset($state['saml:Extensions'])) {
 			$ar->setExtensions($state['saml:Extensions']);
 		}
